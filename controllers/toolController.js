@@ -1,5 +1,6 @@
 const Tool = require('../models/toolModel');
 const { supabase } = require('../config/db');
+const QRCode = require('qrcode');
 
 // Cadastrar nova ferramenta
 const createTool = async (req, res) => {
@@ -30,7 +31,26 @@ const createTool = async (req, res) => {
         });
 
         if (result.success) {
-            return res.status(201).json(result);
+            // Gerar QR Code com o ID da ferramenta
+            const toolId = result.tool.id;
+            const qrData = `https://toolsearch.app/ferramenta/${toolId}`;
+            // Gerar imagem QR Code em base64
+            const qrImage = await QRCode.toBuffer(qrData, { type: 'png' });
+            // Salvar imagem no Supabase Storage
+            const fileName = `qrcodes/tool-${toolId}-${Date.now()}.png`;
+            const { data: uploadData, error: uploadError } = await supabase.storage.from('ferramentas-imagens').upload(fileName, qrImage, { contentType: 'image/png' });
+            console.log('QR Upload error:', uploadError);
+            console.log('QR Upload data:', uploadData);
+            let qrCodeUrl = null;
+            if (!uploadError) {
+                const { publicURL } = supabase.storage.from('ferramentas-imagens').getPublicUrl(fileName);
+                console.log('QR Public URL:', publicURL);
+                qrCodeUrl = publicURL;
+                // Atualizar campo qrcode_url da ferramenta
+                await supabase.from('ferramentas').update({ qrcode_url: qrCodeUrl }).eq('id', toolId);
+            }
+            // Retornar ferramenta com URL do QR Code
+            return res.status(201).json({ ...result, qrCodeUrl });
         } else {
             return res.status(400).json(result);
         }
@@ -214,4 +234,4 @@ module.exports = {
     uploadImage,
     updateQrCode,
     getMostUsedTools
-}; 
+};
